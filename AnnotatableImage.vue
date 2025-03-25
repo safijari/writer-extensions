@@ -1,7 +1,4 @@
 <template>
-	<div class="AnnotatableImage">
-		<div class="triangle"></div>
-	</div>
     <div class="image-container" ref="container">
       <!-- Image to be displayed -->
       <img :src="fields.image.value" :width=imageWidth :height=imageHeight oncontextmenu="return false;" class="image" alt="image" @mousedown="rectangleStart" @mouseup="rectangleEnd" @mousemove="handleMouseMove" draggable="false" @mouseclick="handleClick" />
@@ -17,7 +14,7 @@
       <div class="rectangle-info">
         <!-- Display the list of rectangles -->
         <ul>
-          <li v-for="(rect, index) in rectangles" :key="index">
+          <li v-for="(rect, index) in fields.rectangles.value" :key="index">
             Rectangle {{ index + 1 }}: X: {{ rect.x }}, Y: {{ rect.y }}, Width: {{ rect.width }}, Height: {{ rect.height }}
           </li>
         </ul>
@@ -26,6 +23,13 @@
 </template>
 
 <script lang="ts">
+
+const container: Ref<HTMLElement> = ref(null); // Root element is used to fire events
+
+const pinMessageHandlerStub = `
+def handle_pin(state, payload):
+	state["pinned_message_id"] = payload`;
+
 export default {
 	writer: {
 		name: "Annotatable Image",
@@ -38,8 +42,19 @@ export default {
             image: {
                 name: "Image",
                 type: FieldType.Text,
+            },
+            rectangles: {
+              name: "Rectangles",
+              type: FieldType.Object,
             }
 		},
+
+	  events: {
+	  	"rectangles-updated": {
+	  		desc: "Emitted when the pin button is clicked.",
+	  		stub: pinMessageHandlerStub,
+	  	},
+	  },
 
 		// Preview field is used in the Component Tree
 
@@ -58,9 +73,10 @@ will be available using the evaluatedFields injection symbol.
 */
 
 const fields = inject(injectionKeys.evaluatedFields);
-const container: Ref<HTMLElement> = ref(null); // Root element is used to fire events
 const startX = ref(null);
 const startY = ref(null);
+const dragStartX = ref(null);
+const dragStartY = ref(null);
 const isDragging = ref(false);
 const isDrawing = ref(false);
 const isMouseDown = ref(false);
@@ -68,8 +84,26 @@ const isMouseUp = ref(false);
 const selectedRectangle = ref(null);
 const highlightedRectangle = ref(null);
 
-onMounted(() => {
+const drawRectangles = () => {
+    const canvas = container.value.querySelector("canvas");
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 2;
+
+    rectangles.forEach((rect) => {
+        ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
     });
+};
+
+onMounted(() => {
+  rectangles.values = fields.rectangles.value;
+  drawRectangles();
+});
 
 const imageWidth = computed(() => {
     const img = new Image();
@@ -93,7 +127,7 @@ const rectangleStart = (event: MouseEvent) => {
 };
 
 window.addEventListener("keydown", (event) => {
-    if (event.key === "x" && highlightedRectangle.value) {
+    if (event.key === "d" && highlightedRectangle.value) {
         const index = rectangles.indexOf(highlightedRectangle.value);
         rectangles.splice(index, 1);
         highlightedRectangle.value = null;
@@ -125,16 +159,18 @@ const rectangleEnd = (event: MouseEvent) => {
       yy = yy + height;
       height = -height;
     }
-    const newRect = {
-        x: xx,
-        y: yy,
-        width: (width),
-        height: (height),
-    };
-
-
-    rectangles.push(newRect);
+    if (!(width === 0 || height === 0)) {
+      const newRect = {
+          x: xx,
+          y: yy,
+          width: (width),
+          height: (height),
+      };
+      rectangles.push(newRect);
+      }
   }
+
+    emitRectanglesUpdate(rectangles);
 
     isDragging.value = false;
     isDrawing.value = false;
@@ -147,6 +183,10 @@ const handleMouseMove = (event: MouseEvent) => {
         isDrawing.value = true;
     } else if (startX.value && isMouseDown.value && event.buttons === 2) {
         isDragging.value = true;
+        if (highlightedRectangle.value) {
+          dragStartX.value = +("" + highlightedRectangle.value.x);
+          dragStartY.value = +("" + highlightedRectangle.value.y);
+        }
     }
     if (isDrawing.value) {
       const rect = container.value.getBoundingClientRect();
@@ -182,8 +222,10 @@ const handleMouseMove = (event: MouseEvent) => {
       });
 
       if (highlightedRectangle.value) {
-        highlightedRectangle.value.x += x - startX.value;
-        highlightedRectangle.value.y += y - startY.value;
+        highlightedRectangle.value.x += (x - startX.value);
+        highlightedRectangle.value.y += (y - startY.value);
+        startX.value = x;
+        startY.value = y;
         const canvas = container.value.querySelector("canvas");
         if (!canvas) return;
         
@@ -240,23 +282,24 @@ const handleMouseMove = (event: MouseEvent) => {
     }
 };
 
-// draw rectangles on canvas when rectangles list is changed
+const emitRectanglesUpdate = (rectangles: any) => {
+  const event = new CustomEvent('rectangles-updated', {
+    detail: {payload: rectangles},
+  });
+  if (container.value) {
+    container.value.dispatchEvent(event);
+  }
+};
+
 watch(rectangles, () => {
-    const canvas = container.value.querySelector("canvas");
-    console.log(canvas);
-    if (!canvas) return;
-
-    const ctx = canvas.getContext("2d");
-    if (!ctx) return;
-
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
-    ctx.strokeStyle = "red";
-    ctx.lineWidth = 2;
-
-    rectangles.forEach((rect) => {
-        ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
-    });
+  drawRectangles();
 });
+
+watch(() => fields.rectangles.value, () => {
+  rectangles.length = 0;
+  rectangles.push(...fields.rectangles.value);
+  drawRectangles();
+}, {deep: true});
 
 </script>
 
