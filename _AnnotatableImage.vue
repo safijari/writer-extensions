@@ -24,6 +24,7 @@
 
 <script lang="ts">
 import { defineComponent, ref, reactive, onMounted } from 'vue';
+import VueKonva from 'vue-konva';
 
 export default defineComponent({
   name: 'AnnotatableImage',

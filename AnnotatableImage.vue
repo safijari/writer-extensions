@@ -1,13 +1,10 @@
 <template>
 	<div class="AnnotatableImage">
 		<div class="triangle"></div>
-		<div class="message">
-			{{ fields.text.value }}
-		</div>
 	</div>
     <div class="image-container" ref="container">
       <!-- Image to be displayed -->
-      <img :src="fields.image.value" class="image" alt="image" @mousedown="rectangleStart" @mouseup="rectangleEnd" draggable="false" />
+      <img :src="fields.image.value" :width=imageWidth :height=imageHeight oncontextmenu="return false;" class="image" alt="image" @mousedown="rectangleStart" @mouseup="rectangleEnd" @mousemove="handleMouseMove" draggable="false" @mouseclick="handleClick" />
 
       <!-- Canvas for drawing rectangles -->
       <canvas
@@ -54,7 +51,7 @@ export default {
 <script setup lang="ts">
 import { FieldType } from "@/writerTypes";
 import injectionKeys from "@/injectionKeys";
-import { inject, onMounted, computed, reactive, ref, Ref } from "vue";
+import { watch, inject, onMounted, computed, reactive, ref, Ref } from "vue";
 /*
 The values for the fields defined earlier in the custom option
 will be available using the evaluatedFields injection symbol.
@@ -62,8 +59,14 @@ will be available using the evaluatedFields injection symbol.
 
 const fields = inject(injectionKeys.evaluatedFields);
 const container: Ref<HTMLElement> = ref(null); // Root element is used to fire events
-const startX = ref(0);
-const startY = ref(0);
+const startX = ref(null);
+const startY = ref(null);
+const isDragging = ref(false);
+const isDrawing = ref(false);
+const isMouseDown = ref(false);
+const isMouseUp = ref(false);
+const selectedRectangle = ref(null);
+const highlightedRectangle = ref(null);
 
 onMounted(() => {
     });
@@ -80,33 +83,180 @@ const imageHeight = computed(() => {
     return img.height;
 });
 
-
-const rectangles = ref([]);
+const rectangles = reactive<{ x: number; y: number; width: number; height: number }[]>([]);
 
 const rectangleStart = (event: MouseEvent) => {
+  isMouseDown.value = true;
     const rect = container.value.getBoundingClientRect();
     startX.value = event.clientX - rect.left;
     startY.value = event.clientY - rect.top;
 };
 
+window.addEventListener("keydown", (event) => {
+    if (event.key === "x" && highlightedRectangle.value) {
+        const index = rectangles.indexOf(highlightedRectangle.value);
+        rectangles.splice(index, 1);
+        highlightedRectangle.value = null;
+    }
+});
+
 const rectangleEnd = (event: MouseEvent) => {
+  isMouseDown.value = true;
+  if (! isDrawing.value && !isDragging.value) {
+    startX.value = null;
+    startY.value = null;
+    return;
+  }
+  if (isDrawing.value) {
     const rect = container.value.getBoundingClientRect();
     const x = event.clientX - rect.left;
     const y = event.clientY - rect.top;
 
     // End drawing and store the rectangle
-    const width = x - startX.value;
-    const height = y - startY.value;
+    var width = x - startX.value;
+    var height = y - startY.value;
+    var xx = startX.value;
+    var yy = startY.value;
+    if (width < 0) {
+      xx = xx + width;
+      width = -width;
+    }
+    if (height < 0) {
+      yy = yy + height;
+      height = -height;
+    }
     const newRect = {
-        x: startX.value,
-        y: startY.value,
-        width: Math.abs(width),
-        height: Math.abs(height),
+        x: xx,
+        y: yy,
+        width: (width),
+        height: (height),
     };
 
-    rectangles.value.push(newRect);
-    console.log(rectangles);
+
+    rectangles.push(newRect);
+  }
+
+    isDragging.value = false;
+    isDrawing.value = false;
+    startX.value = null;
+    startY.value = null;
 };
+
+const handleMouseMove = (event: MouseEvent) => {
+    if (startX.value && isMouseDown.value && event.buttons === 1) {
+        isDrawing.value = true;
+    } else if (startX.value && isMouseDown.value && event.buttons === 2) {
+        isDragging.value = true;
+    }
+    if (isDrawing.value) {
+      const rect = container.value.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+
+      const width = x - startX.value;
+      const height = y - startY.value;
+
+      // draw this rectangle
+      const canvas = container.value.querySelector("canvas");
+      if (!canvas) return;
+
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "red";
+      ctx.lineWidth = 2;
+    
+      rectangles.forEach((rect) => {
+          ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+      });
+
+      ctx.strokeRect(startX.value, startY.value, width, height);
+    } else if (isDragging.value) {
+      const rect = container.value.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+
+      highlightedRectangle.value = rectangles.find((rect) => {
+        return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
+      });
+
+      if (highlightedRectangle.value) {
+        highlightedRectangle.value.x += x - startX.value;
+        highlightedRectangle.value.y += y - startY.value;
+        const canvas = container.value.querySelector("canvas");
+        if (!canvas) return;
+        
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 2;
+
+        rectangles.forEach((rect) => {
+            ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+        });
+
+        ctx.lineWidth = 5;
+        [highlightedRectangle.value].forEach((rect) => {
+            ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+        });
+      }
+
+    } else {
+      // make hovered rectangle bold
+      const rect = container.value.getBoundingClientRect();
+      const x = event.clientX - rect.left;
+      const y = event.clientY - rect.top;
+
+      highlightedRectangle.value = rectangles.find((rect) => {
+        return x >= rect.x && x <= rect.x + rect.width && y >= rect.y && y <= rect.y + rect.height;
+      });
+
+      const canvas = container.value.querySelector("canvas");
+      if (!canvas) return;
+      
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.strokeStyle = "red";
+      ctx.lineWidth = 2;
+
+      rectangles.forEach((rect) => {
+          ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+      });
+
+      if (!highlightedRectangle.value) {
+        return;
+      }
+
+      ctx.lineWidth = 5;
+      [highlightedRectangle.value].forEach((rect) => {
+          ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+      });
+
+    }
+};
+
+// draw rectangles on canvas when rectangles list is changed
+watch(rectangles, () => {
+    const canvas = container.value.querySelector("canvas");
+    console.log(canvas);
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    ctx.strokeStyle = "red";
+    ctx.lineWidth = 2;
+
+    rectangles.forEach((rect) => {
+        ctx.strokeRect(rect.x, rect.y, rect.width, rect.height);
+    });
+});
 
 </script>
 
@@ -138,8 +288,6 @@ const rectangleEnd = (event: MouseEvent) => {
 }
 
 .image {
-  width: 100%;
-  height: auto;
   display: block;
 }
 
