@@ -84,6 +84,9 @@ const isMouseUp = ref(false);
 const selectedRectangle = ref(null);
 const highlightedRectangle = ref(null);
 
+var imageWidth = ref(800);
+var imageHeight = ref(600);
+
 const drawRectangles = () => {
     const canvas = container.value.querySelector("canvas");
     if (!canvas) return;
@@ -102,20 +105,31 @@ const drawRectangles = () => {
 
 onMounted(() => {
   rectangles.values = fields.rectangles.value;
+  setWidthAndHeight();
   drawRectangles();
 });
 
-const imageWidth = computed(() => {
-    const img = new Image();
-    img.src = fields.image.value;
-    return img.width;
-});
+function setWidthAndHeight() {
+  const img = new Image();
+  img.src = fields.image.value;
+  img.onload = () => {
+    imageWidth.value = img.width;
+    imageHeight.value = img.height;
+    drawRectangles();
+  };
+}
 
-const imageHeight = computed(() => {
-    const img = new Image();
-    img.src = fields.image.value;
-    return img.height;
-});
+//const imageWidth = computed(() => {
+//    const img = new Image();
+//    img.src = fields.image.value;
+//    return img.width;
+//});
+//
+//const imageHeight = computed(() => {
+//    const img = new Image();
+//    img.src = fields.image.value;
+//    return img.height;
+//});
 
 const rectangles = reactive<{ x: number; y: number; width: number; height: number }[]>([]);
 
@@ -298,6 +312,11 @@ watch(rectangles, () => {
 watch(() => fields.rectangles.value, () => {
   rectangles.length = 0;
   rectangles.push(...fields.rectangles.value);
+  drawRectangles();
+}, {deep: true});
+
+watch(() => fields.image.value, () => {
+  setWidthAndHeight();
   drawRectangles();
 }, {deep: true});
 
